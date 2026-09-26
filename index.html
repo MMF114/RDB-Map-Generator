@@ -49,6 +49,14 @@ input[type=number] { width:100%; font:inherit; color:var(--text); background:#12
   <label>地图规模 <span class="val" id="sizeVal">21</span></label>
   <input type="range" id="size" min="11" max="41" step="2" value="21" />
   <label>随机种子</label>
+  <label>主题风格</label>
+<select id="theme" style="width:100%; font:inherit; color:var(--text); background:#121821; border:1px solid var(--line); border-radius:8px; padding:10px;">
+  <option value="modern">🌆 现代（默认）</option>
+  <option value="cyberpunk">🌃 赛博朋克</option>
+  <option value="snow">❄️ 雪地</option>
+  <option value="desert">🏜️ 沙漠</option>
+  <option value="medieval">🏰 中世纪</option>
+</select>
   <input type="number" id="seed" value="2026" />
   <button class="primary" id="generate">✨ 生成并下载 .rbmap</button>
   <button class="primary" id="downloadBtn" style="background:#35d07f; border-color:#35d07f;">⬇️ 下载这张地图</button>
@@ -265,6 +273,15 @@ function buildPillars(size, rnd) {
   };
 }
 
+// ★ 主题颜色映射表
+const THEMES = {
+  modern: { floor: '#3a3d42', wall: '#c5c9cf', cover: '#7a7e85', accent: '#5a5e65' },
+  cyberpunk: { floor: '#0a0b0e', wall: '#2a1e35', cover: '#4a2e5a', accent: '#ff007f' },
+  snow: { floor: '#e0e8f0', wall: '#ffffff', cover: '#b0c4de', accent: '#87ceeb' },
+  desert: { floor: '#d2b48c', wall: '#f4a460', cover: '#c19a6b', accent: '#8b4513' },
+  medieval: { floor: '#2c2c2c', wall: '#696969', cover: '#4a3b2b', accent: '#8b5a2b' }
+};
+
 function generate() {
   const size = +$('size').value;
   const seed = +$('seed').value || 1;
@@ -276,6 +293,16 @@ function generate() {
   else if (currentAlgo === 'pillars') { result = buildPillars(size, rnd); name = `柱子大厅_${size}x${size}_${seed}`; }
   else return;
   const map = {
+    // ★ 按主题重染色
+    const themeName = document.getElementById('theme').value;
+    const theme = THEMES[themeName] || THEMES.modern;
+    result.objects.forEach(o => {
+      const n = o.name || '';
+      if (n.includes('地面') || n.includes('地板') || n.includes('地基')) o.color = theme.floor;
+      else if (n.includes('掩体')) o.color = theme.cover;
+      else if (n.includes('墙')) o.color = theme.wall;
+      else o.color = theme.accent;
+    });
     format: 'RagdollBoxMap', version: 3, name,
     spawn: result.spawns[0] || [0,1,0],
     spawns: result.spawns,
