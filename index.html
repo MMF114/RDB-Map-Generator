@@ -51,6 +51,8 @@ input[type=number] { width:100%; font:inherit; color:var(--text); background:#12
   <label>随机种子</label>
   <input type="number" id="seed" value="2026" />
   <button class="primary" id="generate">✨ 生成并下载 .rbmap</button>
+  <button class="primary" id="downloadBtn" style="background:#35d07f; border-color:#35d07f;">⬇️ 下载这张地图</button>
+  <canvas id="previewCanvas" style="width:100%; aspect-ratio:1; margin-top:16px; border-radius:12px; background:#0b0e13; border:1px solid var(--line);"></canvas>
 </div>
 
 <div id="log">准备就绪。点击上方按钮开始生成。</div>
@@ -246,17 +248,95 @@ function generate() {
     objects: result.objects,
     props: result.props
   };
-  const blob = new Blob([JSON.stringify(map)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = name + '.rbmap'; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  
+  // ★ 新增：绘制 2D 预览图
+  draw2DPreview(map);
+
+  // ★ 新增：只在日志显示生成结果，不直接下载
   $('log').textContent =
     '✅ 已生成「' + name + '」\n' +
     '📦 方块 ' + result.objects.length + ' 个\n' +
     '🎮 道具 ' + result.props.length + ' 个\n' +
     '🚩 出生点 ' + result.spawns.length + ' 个\n' +
-    '💾 文件已开始下载，检查你的手机「下载」目录。';
+    '👀 请查看上方 2D 预览图，满意后点击下方按钮下载。';
+
+  // ★ 新增：把下载按钮单独拉出来（因为我们在上面改了逻辑）
+  // 为了方便，我们把下载动作绑定到一个新按钮上（往下看第三步）
+  window._currentMap = map;
+  window._currentName = name;
+}
+
+// ★ 新增：2D俯视图绘制
+function draw2DPreview(map) {
+  const canvas = document.getElementById('previewCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = 500, H = 500;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0b0e13'; ctx.fillRect(0, 0, W, H);
+
+  // 计算地图边界
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  map.objects.forEach(o => {
+    const [x, , z] = o.position;
+    const sx = o.type === 'cylinder' ? o.scale[0] * 2 : o.scale[0];
+    const sz = o.type === 'cylinder' ? o.scale[2] * 2 : o.scale[2];
+    minX = Math.min(minX, x - sx / 2); maxX = Math.max(maxX, x + sx / 2);
+    minZ = Math.min(minZ, z - sz / 2); maxZ = Math.max(maxZ, z + sz / 2);
+  });
+  if (minX === Infinity) return;
+
+  const rangeX = maxX - minX || 10;
+  const rangeZ = maxZ - minZ || 10;
+  const scale = Math.min(W / rangeX, H / rangeZ) * 0.9;
+  const offsetX = W / 2 - (minX + maxX) / 2 * scale;
+  const offsetZ = H / 2 - (minZ + maxZ) / 2 * scale;
+
+  // 绘制方块
+  map.objects.forEach(o => {
+    const n = o.name || '';
+    if (n === '地面' || n === '地板' || n === '地基') return; // 地面不画，防止盖住其他物体
+    const x = o.position[0] * scale + offsetX;
+    const z = o.position[2] * scale + offsetZ;
+    const w = (o.type === 'cylinder' ? o.scale[0] * 2 : o.scale[0]) * scale;
+    const h = (o.type === 'cylinder' ? o.scale[2] * 2 : o.scale[2]) * scale;
+    ctx.fillStyle = o.color || '#c5c9cf';
+    ctx.fillRect(x - w / 2, z - h / 2, w, h);
+  });
+
+  // 绘制出生点（绿色）
+  (map.spawns || []).forEach(([x, , z]) => {
+    const cx = x * scale + offsetX;
+    const cz = z * scale + offsetZ;
+    ctx.beginPath();
+    ctx.arc(cx, cz, 7, 0, Math.PI * 2);
+    ctx.fillStyle = '#49e08a'; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  });
+
+  // 绘制道具（彩色点）
+  (map.props || []).forEach(p => {
+    const cx = p.p[0] * scale + offsetX;
+    const cz = p.p[2] * scale + offsetZ;
+    ctx.beginPath();
+    ctx.arc(cx, cz, 4, 0, Math.PI * 2);
+    if (p.id.includes('med')) ctx.fillStyle = '#ff2244';
+    else if (p.id.includes('expl')) ctx.fillStyle = '#ff8800';
+    else ctx.fillStyle = '#ffcc00';
+    ctx.fill();
+  });
+}
+
+// ★ 新增：真正的下载按钮逻辑
+function downloadMap() {
+  if (!window._currentMap) { $('log').textContent = '❌ 请先点击上面的「生成」按钮'; return; }
+  const blob = new Blob([JSON.stringify(window._currentMap)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = window._currentName + '.rbmap'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  $('log').textContent = '✅ 文件已开始下载！检查你的手机「下载」目录。';
 }
 
 document.querySelectorAll('#algoGrid button').forEach(btn => {
@@ -268,6 +348,7 @@ document.querySelectorAll('#algoGrid button').forEach(btn => {
 });
 $('size').addEventListener('input', () => { $('sizeVal').textContent = $('size').value; });
 $('generate').onclick = generate;
+$('downloadBtn').onclick = downloadMap; 
 </script>
 </body>
 </html>
