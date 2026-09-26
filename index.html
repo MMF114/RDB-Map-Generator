@@ -105,6 +105,70 @@ function genMazeGrid(size, rnd) {
   return g;
 }
 
+// ★ 分析迷宫：找出死胡同和岔路口
+function analyzeMaze(grid, size) {
+  const deadEnds = [];
+  const junctions = [];
+  for (let x = 1; x < size - 1; x++) {
+    for (let z = 1; z < size - 1; z++) {
+      if (grid[x][z] !== 0) continue;
+      let openings = 0;
+      if (grid[x - 1][z] === 0) openings++;
+      if (grid[x + 1][z] === 0) openings++;
+      if (grid[x][z - 1] === 0) openings++;
+      if (grid[x][z + 1] === 0) openings++;
+      if (openings === 1) deadEnds.push([x, z]);
+      else if (openings >= 3) junctions.push([x, z]);
+    }
+  }
+  return { deadEnds, junctions };
+}
+
+// ★ 智能刷物资：死胡同放补给，岔路口放掩体
+function placeLoot(grid, size, CELL, rnd) {
+  const { deadEnds, junctions } = analyzeMaze(grid, size);
+  const spawnPoints = [[1, 1], [size - 2, size - 2]];
+  const tooClose = (x, z) => spawnPoints.some(([sx, sz]) => Math.abs(x - sx) + Math.abs(z - sz) < 4);
+  
+  const validDead = deadEnds.filter(([x, z]) => !tooClose(x, z));
+  const validJun  = junctions.filter(([x, z]) => !tooClose(x, z));
+  
+  // 用 rnd 洗牌
+  const shuffle = arr => arr.slice().sort(() => rnd() - 0.5);
+  const deadPick = shuffle(validDead).slice(0, Math.min(8, Math.floor(size / 3)));
+  const junPick  = shuffle(validJun).slice(0, Math.min(6, Math.floor(size / 4)));
+  
+  const props = [];
+  
+  // 死胡同 → 医疗包 / 弹药箱（奖励探索）
+  deadPick.forEach(([x, z]) => {
+    const px = (x - size / 2) * CELL + CELL / 2;
+    const pz = (z - size / 2) * CELL + CELL / 2;
+    const roll = rnd();
+    let id;
+    if (roll < 0.35) id = 'medmed';
+    else if (roll < 0.6) id = 'smallmed';
+    else if (roll < 0.85) id = 'ammoheavy';
+    else id = 'ammolight';
+    props.push({ id, p: [r(px), 0.5, r(pz)], q: [0, 0, 0, 1] });
+  });
+  
+  // 岔路口 → 木箱 / 爆炸桶（战术掩体）
+  junPick.forEach(([x, z]) => {
+    const px = (x - size / 2) * CELL + CELL / 2;
+    const pz = (z - size / 2) * CELL + CELL / 2;
+    const roll = rnd();
+    let id;
+    if (roll < 0.4) id = 'crate';
+    else if (roll < 0.6) id = 'barrel';
+    else if (roll < 0.8) id = 'explbarrel';
+    else id = 'oil';
+    props.push({ id, p: [r(px), 0.5, r(pz)], q: [0, 0, 0, 1] });
+  });
+  
+  return props;
+}
+
 function buildMaze(size, rnd) {
   const g = genMazeGrid(size, rnd);
   const CELL=3, H=4, COVER=1.6;
@@ -128,10 +192,7 @@ function buildMaze(size, rnd) {
   return {
     objects,
     spawns: [[r(sp1x), 2, r(sp1z)], [r(sp2x), 2, r(sp2z)]],
-    props: [
-      { id:'explbarrel', p:[r(CELL*4),0.5,r(CELL*4)], q:[0,0,0,1] },
-      { id:'crate', p:[r(-CELL*4),0.5,r(CELL*4)], q:[0,0,0,1] },
-      { id:'crate', p:[r(CELL*4),0.5,r(-CELL*4)], q:[0,0,0,1] }
+    props: placeLoot(g, size, CELL, rnd)
     ]
   };
 }
@@ -363,9 +424,10 @@ function draw2DPreview(map) {
     const cz = p.p[2] * scale + offsetZ;
     ctx.beginPath();
     ctx.arc(cx, cz, 4, 0, Math.PI * 2);
-    if (p.id.includes('med')) ctx.fillStyle = '#ff2244';
-    else if (p.id.includes('expl')) ctx.fillStyle = '#ff8800';
-    else ctx.fillStyle = '#ffcc00';
+    if (p.id.includes('med')) ctx.fillStyle = '#ff2244';        // 红：医疗
+    else if (p.id.includes('expl')) ctx.fillStyle = '#ff8800';  // 橙：爆炸
+    else if (p.id.includes('ammo')) ctx.fillStyle = '#44cc44';  // 绿：弹药
+    else ctx.fillStyle = '#ffcc00';                              // 黄：掩体/木箱
     ctx.fill();
   });
 }
