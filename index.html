@@ -127,44 +127,79 @@ function buildMaze(size, rnd) {
 }
 
 function buildArena(size, rnd) {
-  const CELL=3, H=3, COVER=1.2;
-  const half = (size/2)*CELL;
+  const CELL = 3, H = 3, COVER = 1.2;
+  const half = (size / 2) * CELL;
   const objects = [];
-  objects.push({ type:'box', name:'地面', color:'#3a3d42', tex:'ground', texRepeat:[20,20],
-    position:[0,-0.25,0], rotation:[0,0,0], scale:[half*2+20, 0.5, half*2+20] });
-  objects.push({ type:'box', name:'北墙', color:'#c5c9cf',
-    position:[0,H/2,-half], rotation:[0,0,0], scale:[half*2+4, H, 2] });
-  objects.push({ type:'box', name:'南墙', color:'#c5c9cf',
-    position:[0,H/2,half], rotation:[0,0,0], scale:[half*2+4, H, 2] });
-  objects.push({ type:'box', name:'东墙', color:'#c5c9cf',
-    position:[half,H/2,0], rotation:[0,0,0], scale:[2, H, half*2+4] });
-  objects.push({ type:'box', name:'西墙', color:'#c5c9cf',
-    position:[-half,H/2,0], rotation:[0,0,0], scale:[2, H, half*2+4] });
-  const mask = [];
-  for (let x=0; x<size/2; x++) {
-    mask.push([]);
-    for (let z=0; z<size/2; z++) mask[x].push(rnd()<0.35 ? 1 : 0);
+  
+  // 地面和四周墙壁
+  objects.push({ type: 'box', name: '地面', color: '#3a3d42', tex: 'ground', texRepeat: [20, 20],
+    position: [0, -0.25, 0], rotation: [0, 0, 0], scale: [half * 2 + 20, 0.5, half * 2 + 20] });
+  objects.push({ type: 'box', name: '北墙', color: '#c5c9cf',
+    position: [0, H / 2, -half], rotation: [0, 0, 0], scale: [half * 2 + 4, H, 2] });
+  objects.push({ type: 'box', name: '南墙', color: '#c5c9cf',
+    position: [0, H / 2, half], rotation: [0, 0, 0], scale: [half * 2 + 4, H, 2] });
+  objects.push({ type: 'box', name: '东墙', color: '#c5c9cf',
+    position: [half, H / 2, 0], rotation: [0, 0, 0], scale: [2, H, half * 2 + 4] });
+  objects.push({ type: 'box', name: '西墙', color: '#c5c9cf',
+    position: [-half, H / 2, 0], rotation: [0, 0, 0], scale: [2, H, half * 2 + 4] });
+
+  // ★ 严格四重镜像对称生成掩体
+  const halfSize = Math.floor(size / 2);
+  const mask = Array.from({ length: size }, () => Array(size).fill(0));
+  
+  for (let x = 0; x < halfSize; x++) {
+    for (let z = 0; z < halfSize; z++) {
+      if (rnd() < 0.35) { // 生成概率
+        // 通过镜像，保证 4 个象限完全一致
+        mask[x][z] = 1;
+        mask[size - 1 - x][z] = 1;
+        mask[x][size - 1 - z] = 1;
+        mask[size - 1 - x][size - 1 - z] = 1;
+      }
+    }
   }
-  for (let x=0; x<size; x++) for (let z=0; z<size; z++) {
-    const mx = x<size/2 ? x : size-1-x;
-    const mz = z<size/2 ? z : size-1-z;
-    if (mask[mx][mz] !== 1) continue;
-    const px = (x-size/2)*CELL + CELL/2, pz = (z-size/2)*CELL + CELL/2;
-    objects.push({ type:'box', name:'掩体', color:'#7a7e85',
-      position:[r(px), COVER/2, r(pz)], rotation:[0,0,0], scale:[CELL, COVER, CELL] });
+
+  // 根据 mask 放置掩体
+  for (let x = 0; x < size; x++) {
+    for (let z = 0; z < size; z++) {
+      if (mask[x][z] !== 1) continue;
+      const px = (x - size / 2) * CELL + CELL / 2;
+      const pz = (z - size / 2) * CELL + CELL / 2;
+      objects.push({ type: 'box', name: '掩体', color: '#7a7e85',
+        position: [r(px), COVER / 2, r(pz)], rotation: [0, 0, 0], scale: [CELL, COVER, CELL] });
+    }
   }
-  objects.push({ type:'box', name:'中央高台', color:'#5a5e65',
-    position:[0,1,0], rotation:[0,0,0], scale:[CELL*2, 2, CELL*2] });
-  return {
-    objects,
-    spawns: [[r(-half+CELL), 1, r(-half+CELL)], [r(half-CELL), 1, r(half-CELL)]],
-    props: [
-      { id:'medmed', p:[0,2.5,0], q:[0,0,0,1] },
-      { id:'crate', p:[r(-half/2),0.5,0], q:[0,0,0,1] },
-      { id:'crate', p:[r(half/2),0.5,0], q:[0,0,0,1] },
-      { id:'explbarrel', p:[0,0.5,r(half/2)], q:[0,0,0,1] }
-    ]
-  };
+
+  // 中央高台（中心争夺点）
+  objects.push({ type: 'box', name: '中央高台', color: '#5a5e65',
+    position: [0, 1, 0], rotation: [0, 0, 0], scale: [CELL * 2, 2, CELL * 2] });
+  
+  // 高台上的物资
+  objects.push({ type: 'box', name: '高台台阶', color: '#5a5e65',
+    position: [CELL, 0.5, 0], rotation: [0, 0, 0], scale: [CELL, 1, CELL] });
+  objects.push({ type: 'box', name: '高台台阶', color: '#5a5e65',
+    position: [-CELL, 0.5, 0], rotation: [0, 0, 0], scale: [CELL, 1, CELL] });
+  objects.push({ type: 'box', name: '高台台阶', color: '#5a5e65',
+    position: [0, 0.5, CELL], rotation: [0, 0, 0], scale: [CELL, 1, CELL] });
+  objects.push({ type: 'box', name: '高台台阶', color: '#5a5e65',
+    position: [0, 0.5, -CELL], rotation: [0, 0, 0], scale: [CELL, 1, CELL] });
+
+  // 红蓝双方出生点（对角线上）
+  const spawns = [
+    [r(-half + CELL * 2), 1, r(-half + CELL * 2)], // 红队（西北角）
+    [r(half - CELL * 2), 1, r(half - CELL * 2)]    // 蓝队（东南角）
+  ];
+
+  // 刷新物资：医疗包、爆炸桶、木箱
+  const props = [
+    { id: 'medmed', p: [0, 2.5, 0], q: [0, 0, 0, 1] }, // 高台中心医疗包
+    { id: 'crate', p: [r(-half / 2), 0.5, 0], q: [0, 0, 0, 1] },
+    { id: 'crate', p: [r(half / 2), 0.5, 0], q: [0, 0, 0, 1] },
+    { id: 'explbarrel', p: [0, 0.5, r(-half / 2)], q: [0, 0, 0, 1] },
+    { id: 'explbarrel', p: [0, 0.5, r(half / 2)], q: [0, 0, 0, 1] }
+  ];
+
+  return { objects, spawns, props };
 }
 
 function buildCastle(size, rnd) {
