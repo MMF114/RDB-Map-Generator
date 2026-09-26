@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>RagdollBox 地图生成器 v2</title>
+<style>
+:root { --bg:#11151b; --panel:#1b222c; --line:#323d4b; --text:#eef4fb; --muted:#9baabc; --accent:#65a9ff; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin:0; min-height:100dvh; background:var(--bg); color:var(--text);
+  font:15px/1.5 system-ui,"Microsoft YaHei",sans-serif; padding:20px 16px 40px; }
+h1 { font-size:22px; margin:0 0 4px; }
+.sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; }
+.card h2 { font-size:15px; margin:0 0 12px; color:var(--accent); }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+button { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line);
+  border-radius:10px; padding:12px; cursor:pointer; transition:all .15s; }
+button.on { border-color:var(--accent); background:rgba(101,169,255,.15); color:var(--accent); }
+button.primary { background:var(--accent); color:#fff; border-color:var(--accent);
+  font-weight:600; font-size:16px; padding:14px; width:100%; margin-top:8px; }
+button.primary:active { background:#4d92e8; }
+label { display:block; font-size:12px; color:var(--muted); margin:14px 0 6px; }
+input[type=range] { width:100%; accent-color:var(--accent); }
+input[type=number] { width:100%; font:inherit; color:var(--text); background:#121821;
+  border:1px solid var(--line); border-radius:8px; padding:10px; }
+select { width:100%; font:inherit; color:var(--text); background:#121821;
+  border:1px solid var(--line); border-radius:8px; padding:10px; }
+.val { float:right; color:var(--accent); font-weight:600; }
+#log { margin-top:16px; padding:12px; background:#0b0e13; border:1px solid var(--line);
+  border-radius:10px; font:12px ui-monospace,monospace; color:var(--muted);
+  min-height:70px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<h1>🗺️ 地图生成器 v2</h1>
+<div class="sub">RagdollBox .rbmap 程序化生成工具</div>
+
+<div class="card">
+  <h2>选择算法</h2>
+  <div class="grid" id="algoGrid">
+    <button data-algo="maze" class="on">🌀 迷宫</button>
+    <button data-algo="arena">⚔️ 对称竞技场</button>
+    <button data-algo="castle">🏰 微型城堡</button>
+    <button data-algo="pillars">🏛️ 柱子大厅</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>参数</h2>
+  <label>地图规模 <span class="val" id="sizeVal">21</span></label>
+  <input type="range" id="size" min="11" max="41" step="2" value="21" />
+
+  <label>随机种子</label>
+  <input type="number" id="seed" value="2026" />
+
+  <label>主题风格</label>
+  <select id="theme">
+    <option value="modern">🌆 现代（默认）</option>
+    <option value="cyberpunk">🌃 赛博朋克</option>
+    <option value="snow">❄️ 雪地</option>
+    <option value="desert">🏜️ 沙漠</option>
+    <option value="medieval">🏰 中世纪</option>
+  </select>
+
+  <button class="primary" id="generate">✨ 生成预览</button>
+  <button class="primary" id="downloadBtn" style="background:#35d07f; border-color:#35d07f;">⬇️ 下载这张地图</button>
+
+  <canvas id="previewCanvas" style="width:100%; aspect-ratio:1; margin-top:16px; border-radius:12px; background:#0b0e13; border:1px solid var(--line);"></canvas>
+</div>
+
+<div id="log">准备就绪。点击上方按钮开始生成。</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let currentAlgo = 'maze';
+const r = v => Math.round(v * 100) / 100;
+
+function makeRng(seed) {
+  let s = (seed >>> 0) || 1;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+function genMazeGrid(size, rnd) {
+  const g = Array.from({length:size}, () => Array(size).fill(1));
+  const stack = [[1, 1]];
+  g[1][1] = 0;
+  while (stack.length) {
+    const [x, z] = stack[stack.length - 1];
+    const dirs = [[-2,0],[2,0],[0,-2],[0,2]].filter(([dx,dz]) => {
+      const nx=x+dx, nz=z+dz;
+      return nx>0 && nx<size-1 && nz>0 && nz<size-1 && g[nx][nz]===1;
+    });
+    if (!dirs.length) { stack.pop(); continue; }
+    const [dx, dz] = dirs[Math.floor(rnd()*dirs.length)];
+    g[x+dx/2][z+dz/2] = 0;
+    g[x+dx][z+dz] = 0;
+    stack.push([x+dx, z+dz]);
+  }
+  for (let k=0; k<size*size*0.15; k++) {
+    const x = 1+Math.floor(rnd()*(size-2)), z = 1+Math.floor(rnd()*(size-2));
+    if (g[x][z]===1 && ((g[x-1][z]===0&&g[x+1][z]===0)||(g[x][z-1]===0&&g[x][z+1]===0)))
+      g[x][z] = 0;
+  }
+  return g;
+}
+
+function buildMaze(size, rnd) {
+  const g = genMazeGrid(size, rnd);
+  const CELL=3, H=4, COVER=1.6;
+  const half = (size/2)*CELL;
+  const objects = [];
+  objects.push({ type:'box', name:'地面', color:'#8d908c', tex:'ground', texRepeat:[20,20],
+    position:[0,-0.25,0], rotation:[0,0,0], scale:[half*2+20, 0.5, half*2+20] });
+  for (let x=0; x<size; x++) for (let z=0; z<size; z++) {
+    if (g[x][z] !== 1) continue;
+    const px = (x-size/2)*CELL + CELL/2, pz = (z-size/2)*CELL + CELL/2;
+    const cover = rnd() < 0.3;
+    const h = cover ? COVER : H;
+    objects.push({ type:'box',, name:cover?'掩体':'高墙',
+      color:cover?'#7a7e85':'#c5c9cf',
+      position:[r(px), r(h/2), r(pz)], rotation:[0,0,0], scale:[CELL, h, CELL] });
+  }
+  const sp1x = (1 - size/2)*CELL + CELL/2;
+  const sp1z = (1 - size/2)*CELL + CELL/2;
+  const sp2x = (size-2 - size/2)*CELL + CELL/2;
+  const sp2z = (size-2 - size/2)*CELL + CELL/2;
+  return {
+    objects,
+    spawns: [[r(sp1x), 2, r(sp1z)], [r(sp2x), 2, r(sp2z)]],
+    props: [
+      { id:'explbarrel', p:[r(CELL*4),0.5,r(CELL*4)], q:[0,0,0,1] },
+      { id:'crate', p:[r(-CELL*4),0.5,r(CELL*4)], q:[0,0,0,1] },
+      { id:'crate', p:[r(CELL*4),0.5,r(-CELL*4)], q:[0,0,0,1] }
+    ]
+  };
+}
+
+function buildArena(size, rnd) {
+  const CELL = 3, H = 3, COVER = 1.2;
+  const half = (size / 2) * CELL;
+  const objects = [];
+  objects.push({ type: 'box', name: '地面', color: '#3a3d42', tex: 'ground', texRepeat: [20, 20],
+    position: [0, -0.25, 0], rotation: [0, 0, 0], scale: [half * 2 + 20, 0.5, half * 2 + 20] });
+  objects.push({ type: 'box', name: '北墙', color: '#c5c9cf',
+    position: [0, H / 2, -half], rotation: [0, 0, 0], scale: [half * 2 + 4, H, 2] });
+  objects.push({ type: 'box', name: '南墙', color: '#c5c9cf',
+    position: [0, H / 2, half], rotation: [0, 0, 0], scale: [half * 2 + 4, H, 2] });
+  objects.push({ type: 'box', name: '东墙', color: '#c5c9cf',
+    position: [half, H / 2, 0], rotation: [0, 0, 0], scale: [2, H, half * 2 + 4] });
+  objects.push({ type: 'box', name: '西墙', color: '#c5c9cf',
+    position: [-half, H / 2, 0], rotation: [0, 0, 0], scale: [2, H, half * 2 + 4] });
+
+  const halfSize = Math.floor(size / 2);
+  const mask = Array.from({ length: size }, () => Array(size).fill(0));
+  for (let x = 0; x < halfSize; x++) {
+    for (let z = 0; z < halfSize; z++) {
+      if (rnd() < 0.35) {
+        mask[x][z] = 1;
+        mask[size - 1 - x][z] = 1;
+        mask[x][size - 1 - z] = 1;
+        mask[size - 1 - x][size - 1 - z] = 1;
+      }
+    }
+  }
+  for (let x = 0; x < size; x++) {
+    for (let z = 0; z < size; z++) {
+      if (mask[x][z] !== 1) continue;
+      const px = (x - size / 2) * CELL + CELL / 2;
+      const pz = (z - size / 2) * CELL + CELL / 2;
+      objects.push({ type: 'box', name: '掩体', color: '#7a7e85',
+        position: [r(px), COVER / 2, r(pz)], rotation: [0, 0, 0], scale: [CELL, COVER, CELL] });
+    }
+  }
+  objects.push({ type: 'box', name: '中央高台', color: '#5a5e65',
+    position: [0, 1, 0], rotation: [0, 0, 0], scale: [CELL * 2, 2, CELL * 2] });
+  [[CELL,0],[-CELL,0],[0,CELL],[0,-CELL]].forEach(([x,z]) => {
+    objects.push({ type: 'box', name: '高台台阶', color: '#5a5e65',
+      position: [x, 0.5, z], rotation: [0, 0, 0], scale: [CELL, 1, CELL] });
+  });
+  const spawns = [
+    [r(-half + CELL * 2), 1, r(-half + CELL * 2)],
+    [r(half - CELL * 2), 1, r(half - CELL * 2)]
+  ];
+  const props = [
+    { id: 'medmed', p: [0, 2.5, 0], q: [0, 0, 0, 1] },
+    { id: 'crate', p: [r(-half / 2), 0.5, 0], q: [0, 0, 0, 1] },
+    { id: 'crate', p: [r(half / 2), 0.5, 0], q: [0, 0, 0, 1] },
+    { id: 'explbarrel', p: [0, 0.5, r(-half / 2)], q: [0, 0, 0, 1] },
+    { id: 'explbarrel', p: [0, 0.5, r(half / 2)], q: [0, 0, 0, 1] }
+  ];
+  return { objects, spawns, props };
+}
+
+function buildCastle(size, rnd) {
+  const S = size * 1.5, H = 8, half = S/2;
+  const objects = [];
+  objects.push({ type:'box', name:'地基', color:'#3a3d42', tex:'ground', texRepeat:[20,20],
+    position:[0,-0.5,0], rotation:[0,0,0], scale:[S*1.2, 1, S*1.2] });
+  objects.push({ type:'box', name:'北墙', color:'#7a7e85',
+    position:[0,H/2,-half], rotation:[0,0,0], scale:[S, H, 2] });
+  objects.push({ type:'box', name:'东墙', color:'#7a7e85',
+    position:[half,H/2,0], rotation:[0,0,0], scale:[2, H, S] });
+  objects.push({ type:'box', name:'西墙', color:'#7a7e85',
+    position:[-half,H/2,0], rotation:[0,0,0], scale:[2, H, S] });
+  objects.push({ type:'box', name:'南墙左', color:'#7a7e85',
+    position:[-half/2-1, H/2, half], rotation:[0,0,0], scale:[half-2, H, 2] });
+  objects.push({ type:'box', name:'南墙右', color:'#7a7e85',
+    position:[half/2+1, H/2, half], rotation:[0,0,0], scale:[half-2, H, 2] });
+  objects.push({ type:'box', name:'门楣', color:'#5a5e65',
+    position:[0,H-1,half], rotation:[0,0,0], scale:[4, 2, 2] });
+  const tS = 6, tH = 12;
+  [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([sx, sz]) => {
+    objects.push({ type:'box', name:'角塔', color:'#5a5e65',
+      position:[sx*half, tH/2, sz*half], rotation:[0,0,0], scale:[tS, tH, tS] });
+    objects.push({ type:'box', name:'塔尖', color:'#c5c9cf',
+      position:[sx*half, tH+2, sz*half], rotation:[0,0,0], scale:[tS*0.7, 4, tS*0.7] });
+  });
+  objects.push({ type:'box', name:'主城', color:'#8b5a2b',
+    position:[0,5,-half/2], rotation:[0,0,0], scale:[14, 10, 10] });
+  objects.push({ type:'box', name:'主城屋顶', color:'#4a3b2b',
+    position:[0,11,-half/2], rotation:[0,0,0], scale:[16, 2, 12] });
+  return {
+    objects,
+    spawns: [[0, 2, half/2]],
+    props: [
+      { id:'crate', p:[-5,0.5,5], q:[0,0,0,1] },
+      { id:'crate', p:[5,0.5,5], q:[0,0,0,1] },
+      { id:'barrel', p:[0,0.5,3], q:[0,0,0,1] }
+    ]
+  };
+}
+
+function buildPillars(size, rnd) {
+  const CELL=4, H=8, R=1.5, half = (size/2)*CELL;
+  const objects = [];
+  objects.push({ type:'box', name:'地板', color:'#3a3d42', tex:'ground', texRepeat:[20,20],
+    position:[0,-0.25,0], rotation:[0,0,0], scale:[half*2+20, 0.5, half*2+20] });
+  objects.push({ type:'box', name:'天花板', color:'#2a2d33',
+    position:[0,H+0.5,0], rotation:[0,0,0], scale:[half*2+20, 1, half*2+20] });
+  for (let x=-half+CELL; x<=half-CELL; x+=CELL*2) {
+    for (let z=-half+CELL; z<=half-CELL; z+=CELL*2) {
+      objects.push({ type:'cylinder', name:'石柱', color:'#a0a4ab',
+        position:[r(x), H/2, r(z)], rotation:[0,0,0], scale:[R, H, R] });
+    }
+  }
+  return {
+    objects,
+    spawns: [[0, 1, 0]],
+    props: [
+      { id:'medmed', p:[CELL,0.5,CELL], q:[0,0,0,1] },
+      { id:'crate', p:[-CELL,0.5,CELL], q:[0,0,0,1] },
+      { id:'crate', p:[CELL,0.5,-CELL], q:[0,0,0,1] }
+    ]
+  };
+}
+
+const THEMES = {
+  modern:    { floor: '#3a3d42', wall: '#c5c9cf', cover: '#7a7e85', accent: '#5a5e65' },
+  cyberpunk: { floor: '#0a0b0e', wall: '#2a1e35', cover: '#4a2e5a', accent: '#ff007f' },
+  snow:      { floor: '#e0e8f0', wall: '#ffffff', cover: '#b0c4de', accent: '#87ceeb' },
+  desert:    { floor: '#d2b48c', wall: '#f4a460', cover: '#c19a6b', accent: '#8b4513' },
+  medieval:  { floor: '#2c2c2c', wall: '#696969', cover: '#4a3b2b', accent: '#8b5a2b' }
+};
+
+function recolor(result, themeName) {
+  const theme = THEMES[themeName] || THEMES.modern;
+  result.objects.forEach(o => {
+    const n = o.name || '';
+    if (n.includes('地面') || n.includes('地板') || n.includes('地基')) o.color = theme.floor;
+    else if (n.includes('掩体')) o.color = theme.cover;
+    else if (n.includes('墙') || n.includes('塔') || n.includes('门楣')) o.color = theme.wall;
+    else o.color = theme.accent;
+  });
+}
+
+function generate() {
+  const size = +$('size').value;
+  const seed = +$('seed').value || 1;
+  const themeName = $('theme').value;
+  const rnd = makeRng(seed);
+
+  let result, name;
+  if (currentAlgo === 'maze') { result = buildMaze(size, rnd); name = `迷宫_${size}x${size}_${seed}`; }
+  else if (currentAlgo === 'arena') { result = buildArena(size, rnd); name = `竞技场_${size}x${size}_${seed}`; }
+  else if (currentAlgo === 'castle') { result = buildCastle(size, rnd); name = `城堡_${seed}`; }
+  else if (currentAlgo === 'pillars') { result = buildPillars(size, rnd); name = `柱子大厅_${size}x${size}_${seed}`; }
+  else return;
+
+  recolor(result, themeName);
+
+  const map = {
+    format: 'RagdollBoxMap',
+    version: 3,
+    name,
+    spawn: result.spawns[0] || [0, 1, 0],
+    spawns: result.spawns,
+    exportedAt: new Date().toISOString(),
+    objects: result.objects,
+    props: result.props
+  };
+
+  draw2DPreview(map);
+
+  $('log').textContent =
+    '✅ 已生成「' + name + '」主题：' + themeName + '\n' +
+    '📦 方块 ' + result.objects.length + ' 个\n' +
+    '🎮 道具 ' + result.props.length + ' 个\n' +
+    '🚩 出生点 ' + result.spawns.length + ' 个\n' +
+    '👀 满意后点击下方按钮下载。';
+
+  window._currentMap = map;
+  window._currentName = name;
+}
+
+function draw2DPreview(map) {
+  const canvas = document.getElementById('previewCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = 500, H = 500;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0b0e13'; ctx.fillRect(0, 0, W, H);
+
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  map.objects.forEach(o => {
+    const [x, , z] = o.position;
+    const sx = o.type === 'cylinder' ? o.scale[0] * 2 : o.scale[0];
+    const sz = o.type === 'cylinder' ? o.scale[2] * 2 : o.scale[2];
+    minX = Math.min(minX, x - sx / 2); maxX = Math.max(maxX, x + sx / 2);
+    minZ = Math.min(minZ, z - sz / 2); maxZ = Math.max(maxZ, z + sz / 2);
+  });
+  if (minX === Infinity) return;
+
+  const rangeX = maxX - minX || 10;
+  const rangeZ = maxZ - minZ || 10;
+  const scale = Math.min(W / rangeX, H / rangeZ) * 0.9;
+  const offsetX = W / 2 - (minX + maxX) / 2 * scale;
+  const offsetZ = H / 2 - (minZ + maxZ) / 2 * scale;
+
+  map.objects.forEach(o => {
+      const n = o.name || '';
+    if (n === '地面' || n === '地板' || n === '地基') return;
+    const x = o.position[0] * scale + offsetX;
+    const z = o.position[2] * scale + offsetZ;
+    const w = (o.type === 'cylinder' ? o.scale[0] * 2 : o.scale[0]) * scale;
+    const h = (o.type === 'cylinder' ? o.scale[2] * 2 : o.scale[2]) * scale;
+    ctx.fillStyle = o.color || '#c5c9cf';
+    ctx.fillRect(x - w / 2, z - h / 2, w, h);
+  });
+
+  (map.spawns || []).forEach(([x, , z]) => {
+    const cx = x * scale + offsetX;
+    const cz = z * scale + offsetZ;
+    ctx.beginPath();
+    ctx.arc(cx, cz, 7, 0, Math.PI * 2);
+    ctx.fillStyle = '#49e08a'; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  });
+
+  (map.props || []).forEach(p => {
+    const cx = p.p[0] * scale + offsetX;
+    const cz = p.p[2] * scale + offsetZ;
+    ctx.beginPath();
+    ctx.arc(cx, cz, 4, 0, Math.PI * 2);
+    if (p.id.includes('med')) ctx.fillStyle = '#ff2244';
+    else if (p.id.includes('expl')) ctx.fillStyle = '#ff8800';
+    else ctx.fillStyle = '#ffcc00';
+    ctx.fill();
+  });
+}
+
+function downloadMap() {
+  if (!window._currentMap) { $('log').textContent = '❌ 请先点击上面的「生成预览」按钮'; return; }
+  const blob = new Blob([JSON.stringify(window._currentMap)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = window._currentName + '.rbmap'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  $('log').textContent = '✅ 文件已开始下载！检查你的手机「下载」目录。';
+}
+
+document.querySelectorAll('#algoGrid button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('#algoGrid button').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    currentAlgo = btn.dataset.algo;
+  };
+});
+$('size').addEventListener('input', () => { $('sizeVal').textContent = $('size').value; });
+$('generate').onclick = generate;
+$('downloadBtn').onclick = downloadMap;
+
+// ★ 切换主题后自动重新生成预览
+$('theme').addEventListener('change', () => {
+  if (window._currentMap) generate();
+});
+</script>
+</body>
+</html>
