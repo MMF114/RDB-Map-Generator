@@ -117,8 +117,8 @@ function buildMaze(size, rnd) {
     const px = (x-size/2)*CELL + CELL/2, pz = (z-size/2)*CELL + CELL/2;
     const cover = rnd() < 0.3;
     const h = cover ? COVER : H;
-    objects.push({ type:'box',, name:cover?'掩体':'高墙',
-      color:cover?'#7a7e85':'#c5c9cf',
+    objects.push({ type:'box', name:cover?'掩体':'高墙',
+     color:cover?'#7a7e85':'#c5c9cf',
       position:[r(px), r(h/2), r(pz)], rotation:[0,0,0], scale:[CELL, h, CELL] });
   }
   const sp1x = (1 - size/2)*CELL + CELL/2;
