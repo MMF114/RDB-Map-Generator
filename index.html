@@ -197,9 +197,12 @@ function buildMaze(size, rnd) {
 }
 
 function buildArena(size, rnd) {
-  const CELL = 3, H = 3, COVER = 1.2;
+  const CELL = 3, H = 3;
   const half = (size / 2) * CELL;
   const objects = [];
+  const props = [];
+
+  // === 地面 + 四周高墙 ===
   objects.push({ type: 'box', name: '地面', color: '#3a3d42', tex: 'ground', texRepeat: [20, 20],
     position: [0, -0.25, 0], rotation: [0, 0, 0], scale: [half * 2 + 20, 0.5, half * 2 + 20] });
   objects.push({ type: 'box', name: '北墙', color: '#c5c9cf',
@@ -211,44 +214,184 @@ function buildArena(size, rnd) {
   objects.push({ type: 'box', name: '西墙', color: '#c5c9cf',
     position: [-half, H / 2, 0], rotation: [0, 0, 0], scale: [2, H, half * 2 + 4] });
 
-  const halfSize = Math.floor(size / 2);
-  const mask = Array.from({ length: size }, () => Array(size).fill(0));
-  for (let x = 0; x < halfSize; x++) {
-    for (let z = 0; z < halfSize; z++) {
-      if (rnd() < 0.35) {
-        mask[x][z] = 1;
-        mask[size - 1 - x][z] = 1;
-        mask[x][size - 1 - z] = 1;
-        mask[size - 1 - x][size - 1 - z] = 1;
-      }
-    }
-  }
-  for (let x = 0; x < size; x++) {
-    for (let z = 0; z < size; z++) {
-      if (mask[x][z] !== 1) continue;
-      const px = (x - size / 2) * CELL + CELL / 2;
-      const pz = (z - size / 2) * CELL + CELL / 2;
-      objects.push({ type: 'box', name: '掩体', color: '#7a7e85',
-        position: [r(px), COVER / 2, r(pz)], rotation: [0, 0, 0], scale: [CELL, COVER, CELL] });
-    }
-  }
+    // === 中央高台 ===
   objects.push({ type: 'box', name: '中央高台', color: '#5a5e65',
     position: [0, 1, 0], rotation: [0, 0, 0], scale: [CELL * 2, 2, CELL * 2] });
   [[CELL,0],[-CELL,0],[0,CELL],[0,-CELL]].forEach(([x,z]) => {
     objects.push({ type: 'box', name: '高台台阶', color: '#5a5e65',
       position: [x, 0.5, z], rotation: [0, 0, 0], scale: [CELL, 1, CELL] });
   });
+  const centerHighValue = ['heavyarmor', 'midarmor', 'ammosniper', 'headarmor_2'];
+  const centerCount = 1 + Math.floor(rnd() * 2);
+  for (let i = 0; i < centerCount; i++) {
+    const id = centerHighValue[Math.floor(rnd() * centerHighValue.length)];
+    props.push({ id, p: [r(-1 + i * 2), 2.5, 0], q: [0, 0, 0, 1] });
+  }
+
+  // === 三类建筑生成函数 ===
+  function buildHouse(cx, cz, tempObjs, tempProps) {
+    const W = 6, D = 6, WH = 3, T = 0.5;
+    tempObjs.push({ type: 'box', name: '地板', color: '#3a3d42',
+      position: [cx, 0.1, cz], rotation: [0, 0, 0], scale: [W, 0.2, D] });
+    tempObjs.push({ type: 'box', name: '墙体', color: '#c5c9cf',
+      position: [cx, WH / 2, cz - D / 2], rotation: [0, 0, 0], scale: [W, WH, T] });
+    tempObjs.push({ type: 'box', name: '墙体', color: '#c5c9cf',
+      position: [cx, WH / 2, cz + D / 2], rotation: [0, 0, 0], scale: [W, WH, T] });
+    tempObjs.push({ type: 'box', name: '墙体', color: '#c5c9cf',
+      position: [cx + W / 2, WH / 2, cz], rotation: [0, 0, 0], scale: [T, WH, D] });
+    tempObjs.push({ type: 'box', name: '墙体', color: '#c5c9cf',
+      position: [cx - W / 2, WH / 2, cz - 2], rotation: [0, 0, 0], scale: [T, WH, 2] });
+    tempObjs.push({ type: 'box', name: '墙体', color: '#c5c9cf',
+      position: [cx - W / 2, WH / 2, cz + 2], rotation: [0, 0, 0], scale: [T, WH, 2] });
+    tempObjs.push({ type: 'box', name: '屋顶', color: '#9a9ea5',
+      position: [cx - 1.5, WH + 0.15, cz], rotation: [0, 0, 0], scale: [3, 0.3, D + 0.4] });
+    tempObjs.push({ type: 'box', name: '屋顶', color: '#9a9ea5',
+      position: [cx + 2, WH + 0.15, cz], rotation: [0, 0, 0], scale: [2, 0.3, D + 0.4] });
+    const pool = ['medmed', 'smallmed', 'ammoheavy', 'ammolight'];
+    const count = 2 + Math.floor(rnd() * 2);
+    for (let i = 0; i < count; i++) {
+      const id = pool[Math.floor(rnd() * pool.length)];
+      tempProps.push({ id, p: [r(cx - 1.5 + i * 1.5), 0.5, r(cz + (rnd() - 0.5) * 3)], q: [0, 0, 0, 1] });
+    }
+    if (rnd() < 0.5) {
+      tempProps.push({ id: 'crate', p: [r(cx - W / 2 - 0.8), 0.5, r(cz)], q: [0, 0, 0, 1] });
+    }
+  }
+
+  function buildBrokenWall(cx, cz, tempObjs, tempProps) {
+    const roll = rnd();
+    let lootPos = [];
+    if (roll < 0.55) {
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx - 2.5, 1.5, cz], rotation: [0, 0, 0], scale: [3, 3, 0.6] });
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx + 2.5, 1.5, cz], rotation: [0, 0, 0], scale: [3, 3, 0.6] });
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx, 0.75, cz], rotation: [0, 0, 0], scale: [1, 1.5, 0.6] });
+      lootPos = [[cx - 3, cz - 1], [cx + 3, cz + 1]];
+    } else if (roll < 0.85) {
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx, 1.5, cz - 3], rotation: [0, 0, 0], scale: [6, 3, 0.6] });
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx - 3, 1.5, cz - 1], rotation: [0, 0, 0], scale: [0.6, 3, 4] });
+      lootPos = [[cx - 3, cz - 3], [cx + 1, cz - 1]];
+    } else {
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx, 1, cz], rotation: [0, 0, 0], scale: [5, 2, 0.6] });
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx + 1, 2.3, cz], rotation: [0, 0, 0], scale: [1, 0.6, 0.6] });
+      lootPos = [[cx - 2, cz + 1]];
+    }
+    const barrels = ['explbarrel', 'oil', 'barrel', 'crate'];
+    const count = 1 + Math.floor(rnd() * 2);
+    for (let i = 0; i < count && i < lootPos.length; i++) {
+      const id = barrels[Math.floor(rnd() * barrels.length)];
+      tempProps.push({ id, p: [r(lootPos[i][0]), 0.5, r(lootPos[i][1])], q: [0, 0, 0, 1] });
+    }
+  }
+
+  function buildPlatform(cx, cz, tempObjs, tempProps) {
+    const W = 5, D = 5, PH = 2;
+    tempObjs.push({ type: 'box', name: '平台', color: '#5a5e65',
+      position: [cx, PH / 2, cz], rotation: [0, 0, 0], scale: [W, PH, D] });
+    tempObjs.push({ type: 'box', name: '平台', color: '#5a5e65',
+      position: [cx, PH + 0.15, cz], rotation: [0, 0, 0], scale: [W + 0.4, 0.3, D + 0.4] });
+    tempObjs.push({ type: 'box', name: '护栏', color: '#c5c9cf',
+      position: [cx, PH + 0.8, cz - D / 2 - 0.2], rotation: [0, 0, 0], scale: [W + 0.4, 0.8, 0.3] });
+    tempObjs.push({ type: 'box', name: '护栏', color: '#c5c9cf',
+      position: [cx, PH + 0.8, cz + D / 2 + 0.2], rotation: [0, 0, 0], scale: [W + 0.4, 0.8, 0.3] });
+    tempObjs.push({ type: 'box', name: '护栏', color: '#c5c9cf',
+      position: [cx - W / 2 - 0.2, PH + 0.8, cz], rotation: [0, 0, 0], scale: [0.3, 0.8, D + 0.4] });
+    tempObjs.push({ type: 'box', name: '台阶', color: '#5a5e65',
+      position: [cx, 0.5, cz + D / 2 + 0.9], rotation: [0, 0, 0], scale: [2, 1, 1.4] });
+    tempObjs.push({ type: 'box', name: '台阶', color: '#5a5e65',
+      position: [cx, 0.25, cz + D / 2 + 2], rotation: [0, 0, 0], scale: [2, 0.5, 1] });
+    if (rnd() < 0.6) {
+      const pool = ['heavyarmor', 'midarmor', 'ammosniper', 'medmed'];
+      const id = pool[Math.floor(rnd() * pool.length)];
+      tempProps.push({ id, p: [r(cx), PH + 0.5, r(cz)], q: [0, 0, 0, 1] });
+    }
+    if (rnd() < 0.4) {
+      tempProps.push({ id: 'crate', p: [r(cx + 1.5), 0.5, r(cz + 1.5)], q: [0, 0, 0, 1] });
+    }
+  }
+
+  // === 对角线镜像工具 ===
+  function mirrorObj(o) {
+    return Object.assign({}, o, {
+      position: [-o.position[2], o.position[1], -o.position[0]],
+      scale: [o.scale[2], o.scale[1], o.scale[0]]
+    });
+  }
+  function mirrorProp(p) {
+    return Object.assign({}, p, {
+      p: [-p.p[2], p.p[1], -p.p[0]]
+    });
+  }
+
+  // === 主循环：随机选位 → 生成 → 镜像 ===
+  const spawnNW = [-half + 6, -half + 6];
+  const spawnSE = [half - 6, half - 6];
+  function nearSpawn(x, z) {
+    return Math.hypot(x - spawnNW[0], z - spawnNW[1]) < 8
+        || Math.hypot(x - spawnSE[0], z - spawnSE[1]) < 8;
+  }
+  const placed = [];
+  function conflict(x, z, r) {
+    if (Math.hypot(x, z) < 9) return true;
+    for (const b of placed) {
+      if (Math.hypot(x - b.x, z - b.z) < r + b.r + 4) return true;
+    }
+    return false;
+  }
+  const builders = [
+    { fn: buildHouse, r: 5 },
+    { fn: buildBrokenWall, r: 5 },
+    { fn: buildPlatform, r: 4 }
+  ];
+  const targetCount = Math.max(4, Math.min(8, Math.floor(size / 4)));
+  let tries = 0, done = 0;
+  while (done < targetCount && tries < 150) {
+    tries++;
+    const range = half - 10;
+    const x = (rnd() * 2 - 1) * range;
+    const z = (rnd() * 2 - 1) * range;
+    const b = builders[Math.floor(rnd() * builders.length)];
+    if (nearSpawn(x, z) || conflict(x, z, b.r)) continue;
+
+    const tempObjs = [], tempProps = [];
+    b.fn(r(x), r(z), tempObjs, tempProps);
+    tempObjs.forEach(o => objects.push(o));
+    tempProps.forEach(p => props.push(p));
+    placed.push({ x, z, r: b.r });
+
+    // 镜像
+    const mx = -z, mz = -x;
+    if (!nearSpawn(mx, mz) && !conflict(mx, mz, b.r)) {
+      tempObjs.forEach(o => objects.push(mirrorObj(o)));
+      tempProps.forEach(p => props.push(mirrorProp(p)));
+      placed.push({ x: mx, z: mz, r: b.r });
+    }
+    done++;
+  }
+
+  // === 出生区残破矮墙（对角线镜像） ===
+  [
+    { x: half - 6, z: half - 12 },
+    { x: -half + 6, z: -half + 12 }
+  ].forEach(({ x, z }) => {
+    objects.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+      position: [x, 1, z], rotation: [0, 0, 0], scale: [6, 2, 0.6] });
+    objects.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+      position: [x + 1.5, 2.3, z], rotation: [0, 0, 0], scale: [1.5, 0.6, 0.6] });
+  });
+
+  // === 出生点 ===
   const spawns = [
-    [r(-half + CELL * 2), 1, r(-half + CELL * 2)],
-    [r(half - CELL * 2), 1, r(half - CELL * 2)]
+    [r(-half + 6), 1, r(-half + 6)],
+    [r(half - 6), 1, r(half - 6)]
   ];
-  const props = [
-    { id: 'medmed', p: [0, 2.5, 0], q: [0, 0, 0, 1] },
-    { id: 'crate', p: [r(-half / 2), 0.5, 0], q: [0, 0, 0, 1] },
-    { id: 'crate', p: [r(half / 2), 0.5, 0], q: [0, 0, 0, 1] },
-    { id: 'explbarrel', p: [0, 0.5, r(-half / 2)], q: [0, 0, 0, 1] },
-    { id: 'explbarrel', p: [0, 0.5, r(half / 2)], q: [0, 0, 0, 1] }
-  ];
+
   return { objects, spawns, props };
 }
 
@@ -316,20 +459,21 @@ function buildPillars(size, rnd) {
 }
 
 const THEMES = {
-  modern:    { floor: '#3a3d42', wall: '#c5c9cf', cover: '#7a7e85', accent: '#5a5e65' },
-  cyberpunk: { floor: '#0a0b0e', wall: '#2a1e35', cover: '#4a2e5a', accent: '#ff007f' },
-  snow:      { floor: '#e0e8f0', wall: '#ffffff', cover: '#b0c4de', accent: '#87ceeb' },
-  desert:    { floor: '#d2b48c', wall: '#f4a460', cover: '#c19a6b', accent: '#8b4513' },
-  medieval:  { floor: '#2c2c2c', wall: '#696969', cover: '#4a3b2b', accent: '#8b5a2b' }
+  modern:    { floor: '#3a3d42', wall: '#c5c9cf', cover: '#7a7e85', accent: '#5a5e65', roof: '#9a9ea5' },
+  cyberpunk: { floor: '#0a0b0e', wall: '#2a1e35', cover: '#4a2e5a', accent: '#ff007f', roof: '#3d1e50' },
+  snow:      { floor: '#e0e8f0', wall: '#ffffff', cover: '#b0c4de', accent: '#87ceeb', roof: '#d0dae8' },
+  desert:    { floor: '#d2b48c', wall: '#f4a460', cover: '#c19a6b', accent: '#8b4513', roof: '#d2a060' },
+  medieval:  { floor: '#2c2c2c', wall: '#696969', cover: '#4a3b2b', accent: '#8b5a2b', roof: '#8b2020' }
 };
 
 function recolor(result, themeName) {
   const theme = THEMES[themeName] || THEMES.modern;
   result.objects.forEach(o => {
     const n = o.name || '';
-    if (n.includes('地面') || n.includes('地板') || n.includes('地基')) o.color = theme.floor;
-    else if (n.includes('掩体')) o.color = theme.cover;
-    else if (n.includes('墙') || n.includes('塔') || n.includes('门楣')) o.color = theme.wall;
+    if (n.includes('屋顶')) o.color = theme.roof;
+    else if (n.includes('地面') || n.includes('地板') || n.includes('地基')) o.color = theme.floor;
+    else if (n.includes('矮墙') || n.includes('掩体')) o.color = theme.cover;
+    else if (n.includes('墙') || n.includes('塔') || n.includes('门楣') || n.includes('护栏')) o.color = theme.wall;
     else o.color = theme.accent;
   });
 }
