@@ -512,19 +512,19 @@ select {
       <span class="section-hint">Algorithm</span>
     </div>
     <div class="algo-grid" id="algoGrid">
-      <button type="button" class="algo on" data-algo="maze">
+      <button type="button" class="algo on" data-algo="maze" aria-pressed="true">
         <span class="num">01</span>
         <span class="name">迷宫</span>
       </button>
-      <button type="button" class="algo" data-algo="arena">
+      <button type="button" class="algo" data-algo="arena" aria-pressed="false">
         <span class="num">02</span>
         <span class="name">对称竞技场</span>
       </button>
-      <button type="button" class="algo" data-algo="castle">
+      <button type="button" class="algo" data-algo="castle" aria-pressed="false">
         <span class="num">03</span>
         <span class="name">微型城堡</span>
       </button>
-      <button type="button" class="algo" data-algo="pillars">
+      <button type="button" class="algo" data-algo="pillars" aria-pressed="false">
         <span class="num">04</span>
         <span class="name">柱子大厅</span>
       </button>
@@ -568,7 +568,7 @@ select {
   </section>
 
   <!-- ═════════ 状态 ═════════ -->
-  <div class="status" id="log">准备就绪。选择算法并点击「生成预览」。</div>
+  <div class="status" id="log" role="status">准备就绪。选择算法并点击「生成预览」。</div>
 
 </div>
 
@@ -577,8 +577,9 @@ const $ = id => document.getElementById(id);
 let currentAlgo = 'maze';
 const r = v => Math.round(v * 100) / 100;
 
+// 支持 seed=0（不再被 || 1 吞掉）
 function makeRng(seed) {
-  let s = (seed >>> 0) || 1;
+  let s = (seed >>> 0);
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
 }
 
@@ -625,6 +626,16 @@ function analyzeMaze(grid, size) {
   return { deadEnds, junctions };
 }
 
+// Fisher-Yates 均匀洗牌（替换掉有偏的 sort(rnd-0.5)）
+function fisherYates(arr, rnd) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
 // 智能刷物资：死胡同放补给，岔路口放掩体
 function placeLoot(grid, size, CELL, rnd) {
   const { deadEnds, junctions } = analyzeMaze(grid, size);
@@ -634,9 +645,8 @@ function placeLoot(grid, size, CELL, rnd) {
   const validDead = deadEnds.filter(([x, z]) => !tooClose(x, z));
   const validJun  = junctions.filter(([x, z]) => !tooClose(x, z));
 
-  const shuffle = arr => arr.slice().sort(() => rnd() - 0.5);
-  const deadPick = shuffle(validDead).slice(0, Math.min(8, Math.floor(size / 3)));
-  const junPick  = shuffle(validJun).slice(0, Math.min(6, Math.floor(size / 4)));
+  const deadPick = fisherYates(validDead, rnd).slice(0, Math.min(8, Math.floor(size / 3)));
+  const junPick  = fisherYates(validJun, rnd).slice(0, Math.min(6, Math.floor(size / 4)));
 
   const props = [];
 
@@ -813,39 +823,38 @@ function buildArena(size, rnd) {
       tempProps.push({ id: 'crate', p: [r(cx + 1.5), 0.5, r(cz + 1.5)], q: [0, 0, 0, 1] });
     }
   }
-  
-  // 次级填充物：木箱堆 / 油桶群 / 孤立矮墙 / 沙袋掩体
-function scatterClutter(cx, cz, tempObjs, tempProps) {
-  const roll = rnd();
-  if (roll < 0.30) {
-    const n = 2 + Math.floor(rnd() * 2);
-    for (let i = 0; i < n; i++) {
-      tempProps.push({ id: 'crate',
-        p: [r(cx + (i - n / 2) * 1.1), 0.5, r(cz + (rnd() - 0.5) * 1.2)],
-        q: [0, 0, 0, 1] });
-    }
-  } else if (roll < 0.55) {
-    const n = 2 + Math.floor(rnd() * 3);
-    const ids = ['oil', 'barrel', 'explbarrel'];
-    for (let i = 0; i < n; i++) {
-      const angle = (i / n) * Math.PI * 2 + rnd() * 0.3;
-      const id = ids[Math.floor(rnd() * ids.length)];
-      tempProps.push({ id, p: [r(cx + Math.cos(angle) * 1.2), 0.5, r(cz + Math.sin(angle) * 1.2)], q: [0, 0, 0, 1] });
-    }
-  } else if (roll < 0.80) {
-    const len = 3 + rnd() * 1.5;
-    const horiz = rnd() < 0.5;
-    tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
-      position: [cx, 0.75, cz], rotation: [0, 0, 0],
-      scale: horiz ? [len, 1.5, 0.5] : [0.5, 1.5, len] });
-  } else {
-    tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
-      position: [cx, 0.5, cz], rotation: [0, 0, 0], scale: [2.5, 1, 0.5] });
-    tempProps.push({ id: 'barrel', p: [r(cx + 1.8), 0.5, r(cz + 0.5)], q: [0, 0, 0, 1] });
-  }
-}
 
-  
+  // 次级填充物：木箱堆 / 油桶群 / 孤立矮墙 / 沙袋掩体
+  function scatterClutter(cx, cz, tempObjs, tempProps) {
+    const roll = rnd();
+    if (roll < 0.30) {
+      const n = 2 + Math.floor(rnd() * 2);
+      for (let i = 0; i < n; i++) {
+        tempProps.push({ id: 'crate',
+          p: [r(cx + (i - n / 2) * 1.1), 0.5, r(cz + (rnd() - 0.5) * 1.2)],
+          q: [0, 0, 0, 1] });
+      }
+    } else if (roll < 0.55) {
+      const n = 2 + Math.floor(rnd() * 3);
+      const ids = ['oil', 'barrel', 'explbarrel'];
+      for (let i = 0; i < n; i++) {
+        const angle = (i / n) * Math.PI * 2 + rnd() * 0.3;
+        const id = ids[Math.floor(rnd() * ids.length)];
+        tempProps.push({ id, p: [r(cx + Math.cos(angle) * 1.2), 0.5, r(cz + Math.sin(angle) * 1.2)], q: [0, 0, 0, 1] });
+      }
+    } else if (roll < 0.80) {
+      const len = 3 + rnd() * 1.5;
+      const horiz = rnd() < 0.5;
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx, 0.75, cz], rotation: [0, 0, 0],
+        scale: horiz ? [len, 1.5, 0.5] : [0.5, 1.5, len] });
+    } else {
+      tempObjs.push({ type: 'box', name: '矮墙', color: '#7a7e85',
+        position: [cx, 0.5, cz], rotation: [0, 0, 0], scale: [2.5, 1, 0.5] });
+      tempProps.push({ id: 'barrel', p: [r(cx + 1.8), 0.5, r(cz + 0.5)], q: [0, 0, 0, 1] });
+    }
+  }
+
   // 对角线镜像工具
   function mirrorObj(o) {
     return Object.assign({}, o, {
@@ -879,7 +888,8 @@ function scatterClutter(cx, cz, tempObjs, tempProps) {
     { fn: buildBrokenWall, r: 5 },
     { fn: buildPlatform, r: 4 }
   ];
-  const targetCount = Math.max(5, Math.min(9, Math.floor(size / 3.5)));
+  // 小尺寸联动：size=11 → 3 栋，size=21 → 6 栋，size=41 → 9 栋（方案 A）
+  const targetCount = Math.max(2, Math.min(9, Math.floor(size / 3.5)));
   let tries = 0, done = 0;
   while (done < targetCount && tries < 150) {
     tries++;
@@ -904,7 +914,7 @@ function scatterClutter(cx, cz, tempObjs, tempProps) {
     }
     done++;
   }
-  
+
   // 次级填充物：小掩体 / 桶群 —— 撒在建筑之间的空地上
   const clutterCount = Math.max(10, Math.min(20, Math.floor(size / 2)));
   let clutterTries = 0, clutterDone = 0;
@@ -929,7 +939,6 @@ function scatterClutter(cx, cz, tempObjs, tempProps) {
     clutterDone++;
   }
 
-  
   // 出生区残破矮墙（对角线镜像）
   [
     { x: half - 6, z: half - 12 },
@@ -1021,21 +1030,39 @@ const THEMES = {
   medieval:  { floor: '#2c2c2c', wall: '#696969', cover: '#4a3b2b', accent: '#8b5a2b', roof: '#8b2020' }
 };
 
+// 名字 → 主题角色 的显式映射
+// 未匹配的名字保留原色（不重染）
+const NAME_TO_ROLE = {
+  // 地面类
+  '地面': 'floor', '地板': 'floor', '地基': 'floor', '天花板': 'floor',
+  // 屋顶类
+  '屋顶': 'roof', '主城屋顶': 'roof',
+  // 掩体类
+  '矮墙': 'cover', '掩体': 'cover',
+  // 墙体类
+  '高墙': 'wall', '墙体': 'wall',
+  '北墙': 'wall', '南墙': 'wall', '东墙': 'wall', '西墙': 'wall',
+  '南墙左': 'wall', '南墙右': 'wall',
+  '门楣': 'wall', '角塔': 'wall', '塔尖': 'wall',
+  '护栏': 'wall', '石柱': 'wall', '主城': 'wall',
+  // 强调/装饰类
+  '中央高台': 'accent', '高台台阶': 'accent',
+  '平台': 'accent', '台阶': 'accent'
+};
+
 function recolor(result, themeName) {
   const theme = THEMES[themeName] || THEMES.modern;
   result.objects.forEach(o => {
-    const n = o.name || '';
-    if (n.includes('屋顶')) o.color = theme.roof;
-    else if (n.includes('地面') || n.includes('地板') || n.includes('地基')) o.color = theme.floor;
-    else if (n.includes('矮墙') || n.includes('掩体')) o.color = theme.cover;
-    else if (n.includes('墙') || n.includes('塔') || n.includes('门楣') || n.includes('护栏')) o.color = theme.wall;
-    else o.color = theme.accent;
+    const role = NAME_TO_ROLE[o.name];
+    if (role) o.color = theme[role];
   });
 }
 
 function generate() {
   const size = +$('size').value;
-  const seed = +$('seed').value || 1;
+  // seed=0 不再被强制改成 1
+  const rawSeed = $('seed').value.trim();
+  const seed = rawSeed === '' ? 1 : (Number.isFinite(+rawSeed) ? Math.trunc(+rawSeed) : 1);
   const themeName = $('theme').value;
   const rnd = makeRng(seed);
 
@@ -1140,20 +1167,47 @@ function downloadMap() {
   $('log').textContent = '文件已开始下载。检查你的「下载」目录。';
 }
 
+// ───── 事件监听：全自动重生 ─────
+
+// 统一的 debounce 重生
+let regenTimer = 0;
+function scheduleRegen(delay) {
+  clearTimeout(regenTimer);
+  regenTimer = setTimeout(generate, delay);
+}
+
+// 算法按钮：立即重生 + 更新 aria-pressed
 document.querySelectorAll('#algoGrid button').forEach(btn => {
   btn.onclick = () => {
-    document.querySelectorAll('#algoGrid button').forEach(b => b.classList.remove('on'));
+    document.querySelectorAll('#algoGrid button').forEach(b => {
+      b.classList.remove('on');
+      b.setAttribute('aria-pressed', 'false');
+    });
     btn.classList.add('on');
+    btn.setAttribute('aria-pressed', 'true');
     currentAlgo = btn.dataset.algo;
+    generate();
   };
 });
-$('size').addEventListener('input', () => { $('sizeVal').textContent = $('size').value; });
+
+// size 滑块：更新数字 + 200ms 后重生
+$('size').addEventListener('input', () => {
+  $('sizeVal').textContent = $('size').value;
+  scheduleRegen(200);
+});
+
+// seed 输入：400ms 后重生（等用户停止输入）
+$('seed').addEventListener('input', () => {
+  scheduleRegen(400);
+});
+
+// 主题变化：立即重生
+$('theme').addEventListener('change', () => {
+  generate();
+});
+
 $('generate').onclick = generate;
 $('downloadBtn').onclick = downloadMap;
-
-$('theme').addEventListener('change', () => {
-  if (window._currentMap) generate();
-});
 
 // 首屏自动生成一次，避免空白预览
 generate();
